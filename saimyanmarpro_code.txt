@@ -1,0 +1,927 @@
+Saimyanmarpro Repository Code
+main.py
+import streamlit as st
+import streamlit.components.v1 as components
+import os
+import base64
+import uuid
+import sys
+import json
+import threading
+import edge_tts
+import asyncio
+import mutagen.mp3
+# --- 0. Global Concurrency Limit (ပြိုင်တူ အသုံ းပြုသူ Max 10 ကန့်သတ်ရန်) --@st.cache_resource
+def get_semaphore():
+# တစ်ပြိုင်တည်း အသံ ထု တ်လု ပ်မှု အများဆုံ း ၁၀ ခု သာ ခွင့်ပြုရန်
+return threading.Semaphore(10)
+global_semaphore = get_semaphore()
+# --- 1. Streamlit Page Configuration --st.set_page_config(layout="wide", page_title="စို င်းမြန်မာ အသံ ပြောင်းစနစ် Pro", ini
+# --- Streamlit ရဲ့ မူ လ Header, Footer များကို ဖျောက်ရန် --st.markdown("""
+<style>
+#MainMenu {visibility: hidden;}
+footer {visibility: hidden;}
+header {visibility: hidden;}
+iframe { border: none !important; }
+.block-container {
+padding: 0rem !important;
+max-width: 100% !important;
+}
+/* Sidebar Styling for Admin */
+[data-testid="stSidebar"] {
+background-color: #0f172a;
+
+color: white;
+}
+</style>
+""", unsafe_allow_html=True)
+
+# --- 1.5 ADMIN DASHBOARD & TRACKING SYSTEM --STATS_FILE = "website_stats.json"
+# Database ဖို င်မရှိသေးရင် အသစ်ဖန်တီးမည်
+def init_stats():
+if not os.path.exists(STATS_FILE):
+with open(STATS_FILE, "w", encoding="utf-8") as f:
+json.dump({"total_generated": 0}, f)
+# အသံ ထု တ်တို င်း အရေအတွက် တို းမှ တ်မည်
+def update_stats():
+try:
+with open(STATS_FILE, "r", encoding="utf-8") as f:
+stats = json.load(f)
+stats["total_generated"] += 1
+with open(STATS_FILE, "w", encoding="utf-8") as f:
+json.dump(stats, f)
+except:
+pass
+init_stats()
+# ဘေးဘက် (Sidebar) တွင် Admin Password အကွက် ဖန်တီးခြင်း
+with st.sidebar:
+
+🔐
+
+st.markdown("###
+Admin လျှို့ဝှ က်ခန်း")
+st.write("အသုံ းပြုသူ အရေအတွက်ကို ကြည့်ရန် Password ထည့်ပါ။")
+# ဤနေရာတွင် Password ကို ပြောင်းနို င်ပါသည်
+ADMIN_PASSWORD = "saimyanmar123#"
+pwd = st.text_input("Password", type="password")
+if pwd == ADMIN_PASSWORD:
+
+✅
+
+st.success("
+အကောင့်ဝင်ခြင်း အောင်မြင်ပါသည်။")
+st.markdown("---")
+try:
+with open(STATS_FILE, "r", encoding="utf-8") as f:
+stats = json.load(f)
+
+total_uses = stats.get("total_generated", 0)
+
+🎧 စု စု ပေါင်း အသံ ထု တ်ယူ မှု အကြိမ်ရေ", value=f"{total_u
+
+st.metric(label="
+
+st.info("မှ တ်ချက် - ဤစာရင်းကို Admin သာလျှင် မြင်တွေ့ရမည်ဖြစ်ပါသည်။")
+except:
+st.write("ဒေတာ မရှိသေးပါ။")
+elif pwd != "":
+
+❌ Password မှ ားယွင်းနေပါသည်။")
+
+st.error("
+
+# --- 2. HTML / CSS / JS UI Code --HTML_CODE = r"""
+<!DOCTYPE html>
+<html lang="my" class="dark">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0,
+<title>စို င်းမြန်မာ အသံ ပြောင်းစနစ် Pro</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<script>
+tailwind.config = {
+darkMode: 'class',
+theme: {
+extend: {
+colors: {
+primary: '#ec4899',
+darkBg: '#0f172a',
+darkPanel: '#1e293b'
+},
+animation: {
+'spin-slow': 'spin 3s linear infinite',
+}
+}
+}
+}
+</script>
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Padauk:wght@
+@import url('https://fonts.googleapis.com/css2?family=Orbitron:wgh
+body {
+font-family: 'Padauk', sans-serif;
+transition: background-color 0.3s ease;
+-webkit-tap-highlight-color: transparent;
+
+}
+body {
+background-color: #f8fafc;
+background-image: url("data:image/svg+xml,%3Csvg width='150' h
+background-attachment: fixed;
+}
+.dark body {
+background-color: #0f172a;
+background-image: url("data:image/svg+xml,%3Csvg width='150' h
+}
+.custom-scrollbar::-webkit-scrollbar { width: 6px; }
+.custom-scrollbar::-webkit-scrollbar-track { background: transpare
+.custom-scrollbar::-webkit-scrollbar-thumb { background: #cbd5e1;
+.dark .custom-scrollbar::-webkit-scrollbar-thumb { background: #47
+.bouncy-btn { position: relative; transition: all 0.3s cubic-bezie
+.bouncy-btn:hover { transform: translateY(-4px) scale(1.03); box-s
+.bouncy-btn:active { transform: scale(0.92); }
+.active-btn { transform: scale(1.02); }
+/* --- Ripple Effect CSS (ရေလှိုင်းလို ခု န်မည့် Animation) --- */
+.ripple-effect {
+position: relative;
+overflow: hidden;
+transform: translate3d(0, 0, 0);
+}
+.ripple-effect::after {
+content: "";
+display: block;
+position: absolute;
+width: 100%;
+height: 100%;
+top: 0;
+left: 0;
+pointer-events: none;
+background-image: radial-gradient(circle, rgba(255, 255, 255,
+background-repeat: no-repeat;
+background-position: 50%;
+transform: scale(10, 10);
+opacity: 0;
+transition: transform .5s, opacity 1s;
+}
+
+.ripple-effect:active::after {
+transform: scale(0, 0);
+opacity: .4;
+transition: 0s;
+}
+.style-btn.active-btn {
+border-color: #ec4899 !important; color: #ec4899 !important; b
+}
+.dark .style-btn.active-btn {
+border-color: #f472b6 !important; color: #f472b6 !important; b
+}
+.voice-btn { text-align: left; position: relative; overflow: hidde
+.active-btn.voice-btn { border-color: #a855f7 !important; }
+.play-icon-wrapper { position: relative; z-index: 2; }
+.voice-btn:hover .play-icon-wrapper::before,
+.active-btn.voice-btn .play-icon-wrapper::before {
+content: ''; position: absolute; top: 0; left: 0; right: 0; bo
+}
+@keyframes ripple-wave { 0% { transform: scale(1); opacity: 1; } 1
+.slider-container { position: relative; width: 100%; height: 12px
+.dark .slider-container { background: #1e293b; box-shadow: inset 0
+.slider-fill { position: absolute; top: 0; left: 0; height: 100%;
+.slider-input { position: absolute; top: 0; left: 0; width: 100%;
+.slider-input::-webkit-slider-thumb { -webkit-appearance: none; ap
+.slider-input::-webkit-slider-thumb:active { transform: scale(1.1)
+.solid-control-btn { position: relative; overflow: hidden; transit
+.dark .solid-control-btn { border-color: #475569; background-color
+.solid-control-btn:hover { border-color: #ec4899; color: #ec4899;
+.dark .solid-control-btn:hover { background-color: #334155; }
+.solid-control-btn:active { transform: scale(0.95); background-col
+.dark .solid-control-btn:active { background-color: #475569; }
+.logo-container { position: relative; width: 140px; height: 140px
+@keyframes ring-spin { 0% { transform: rotate(0deg); } 100% { tran
+.logo-ring { position: absolute; width: 100%; height: 100%; border
+.logo-inner { position: relative; z-index: 10; text-align: center
+.dark .logo-inner { box-shadow: 0 4px 10px rgba(0,0,0,0.3); }
+.visualizer-container { display: flex; align-items: center; justif
+.wave-bar-new { width: 4px; background: #cbd5e1; border-radius: 2p
+
+.dark .wave-bar-new { background: #475569; }
+.visualizer-active .wave-bar-new { background: linear-gradient(to
+@keyframes wave-animation { 0% { height: 10%; opacity: 0.7; } 100%
+.wave-bar-new:nth-child(1) { animation-delay: 0.0s; animation-dura
+.wave-bar-new:nth-child(2) { animation-delay: 0.1s; animation-dura
+.wave-bar-new:nth-child(3) { animation-delay: 0.2s; animation-dura
+.wave-bar-new:nth-child(4) { animation-delay: 0.3s; animation-dura
+.wave-bar-new:nth-child(5) { animation-delay: 0.4s; animation-dura
+.wave-bar-new:nth-child(6) { animation-delay: 0.5s; animation-dura
+.wave-bar-new:nth-child(7) { animation-delay: 0.4s; animation-dura
+.wave-bar-new:nth-child(8) { animation-delay: 0.3s; animation-dura
+.wave-bar-new:nth-child(9) { animation-delay: 0.2s; animation-dura
+.wave-bar-new:nth-child(10) { animation-delay: 0.1s; animation-dur
+.wave-bar-new:nth-child(11) { animation-delay: 0.0s; animation-dur
+.wave-bar-new:nth-child(12) { animation-delay: 0.1s; animation-dur
+.wave-bar-new:nth-child(13) { animation-delay: 0.2s; animation-dur
+.wave-bar-new:nth-child(14) { animation-delay: 0.3s; animation-dur
+.wave-bar-new:nth-child(15) { animation-delay: 0.4s; animation-dur
+.wave-bar-new:nth-child(16) { animation-delay: 0.5s; animation-dur
+.wave-bar-new:nth-child(17) { animation-delay: 0.4s; animation-dur
+.wave-bar-new:nth-child(18) { animation-delay: 0.3s; animation-dur
+.wave-bar-new:nth-child(19) { animation-delay: 0.2s; animation-dur
+.wave-bar-new:nth-child(20) { animation-delay: 0.1s; animation-dur
+.no-bounce-input { transition: border-color 0.2s, box-shadow 0.2s
+.no-bounce-input:focus-within { border-color: #ec4899; box-shadow
+/* New Pro Stats Box Styling */
+.stats-box {
+background-color: #0f172a;
+border: 1px solid #1e293b;
+border-radius: 12px;
+padding: 16px 20px;
+display: flex;
+justify-content: space-between;
+align-items: center;
+margin-bottom: 24px;
+box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.5);
+}
+.stat-item {
+text-align: center;
+flex: 1;
+}
+.stat-val {
+
+color: #22c55e;
+font-size: 22px;
+font-weight: 800;
+font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Cons
+line-height: 1;
+margin-bottom: 4px;
+text-shadow: 0 0 10px rgba(34, 197, 94, 0.3);
+}
+.stat-label {
+color: #64748b;
+font-size: 11px;
+text-transform: uppercase;
+font-weight: 700;
+letter-spacing: 1px;
+}
+</style>
+</head>
+<body class="text-slate-800 dark:text-white min-h-screen p-3 sm:p-4 flex f
+<div class="w-full max-w-2xl flex justify-end mb-2 relative z-10">
+<button onclick="toggleTheme()" id="themeBtn" class="bouncy-btn bg
+
+☀️ အလင်းမု ဒ်
+
+</button>
+</div>
+
+<div class="text-center mb-8 sm:mb-10 w-full max-w-2xl relative z-10 f
+<div class="logo-container mb-6">
+<div class="logo-ring"></div>
+<div class="logo-inner">
+<div class="font-['Orbitron'] text-[16px] font-bold text<div class="font-['Orbitron'] text-[22px] font-bold text<div class="font-['Padauk'] text-[13px] text-slate-300">မြ
+</div>
+</div>
+<h1 class="text-3xl sm:text-4xl font-extrabold mb-6 drop-shadow-md
+<span class="text-[#06b6d4]">စို င်းမြန်မာ</span>
+<span class="text-[#94a3b8]">အသံ ပြောင်းစနစ်</span>
+<span class="text-[#a855f7]">Pro</span>
+</h1>
+<div class="bouncy-btn inline-block border-[3px] border-pink-500 b
+<p class="text-sm sm:text-base font-extrabold text-transparent
+
+စို င်းမြန်မာ Telegram Channel မှ ကြိုဆို ပါတယ်
+</p>
+</div>
+<div class="bg-white/95 dark:bg-[#1e293b]/95 backdrop-blur-md bord
+<h3 class="text-pink-600 dark:text-pink-500 font-extrabold tex
+
+⚠️</span> အရေးကြီး အသိပေးချက် <span>⚠️</span>
+
+<span>
+
+</h3>
+<p class="text-slate-700 dark:text-slate-300 text-[14.5px] fon
+ကျွန်တော်တို့ <span class="text-pink-600 dark:text-pink-400 fon
+ရှေ့ဆက်ပြီး System အသစ်တွေချထားရင် အလွယ်တကူ သိရှိနို င်ဖို့ <span class="t
+</p>
+<a href="https://t.me/saimyanmar123" target="_blank" rel="noop
+
+👉 Telegram Group သို့ ယခု ပဲ ဝင်ထားပါ 👈
+
+</a>
+</div>
+</div>
+
+<div class="w-full max-w-2xl bg-white/95 dark:bg-[#1e293b]/95 backdrop
+<h2 class="text-pink-600 dark:text-pink-400 text-sm font-extrabold
+<div id="voices-grid" class="grid grid-cols-2 gap-2 sm:gap-3 mb-6
+</div>
+<h2 class="text-purple-600 dark:text-purple-400 text-sm font-extra
+<div id="recap-grid" class="grid grid-cols-2 sm:grid-cols-3 gap-2
+</div>
+<h2 class="text-blue-600 dark:text-blue-400 text-sm font-extrabold
+<div id="emotions-grid" class="grid grid-cols-3 sm:grid-cols-4 gap
+</div>
+<div class="mb-5 bg-slate-50 dark:bg-slate-800/50 p-5 rounded-2xl
+<div class="flex justify-between items-center mb-5">
+<span class="text-sm font-extrabold text-slate-700 dark:te
+<span id="speed-val" class="font-mono text-base font-bold
+</div>
+<div class="flex items-center justify-between gap-4">
+<button onclick="changeVal('speed', -5)" class="solid-cont
+<div class="slider-container flex-1 relative h-8">
+<div class="slider-fill" id="speed-fill" style="width
+<input type="range" id="speed" min="-100" max="100" va
+</div>
+<button onclick="changeVal('speed', 5)" class="solid-contr
+
+</div>
+</div>
+<div class="mb-8 bg-slate-50 dark:bg-slate-800/50 p-5 rounded-2xl
+<div class="flex justify-between items-center mb-5">
+<span class="text-sm font-extrabold text-slate-700 dark:te
+<span id="pitch-val" class="font-mono text-base font-bold
+</div>
+<div class="flex items-center justify-between gap-4">
+<button onclick="changeVal('pitch', -5)" class="solid-cont
+<div class="slider-container flex-1 relative h-8">
+<div class="slider-fill" id="pitch-fill" style="width
+<input type="range" id="pitch" min="-100" max="100" va
+</div>
+<button onclick="changeVal('pitch', 5)" class="solid-contr
+</div>
+</div>
+<div class="flex justify-between items-center mb-4 mt-4">
+<h2 class="text-slate-800 dark:text-slate-200 text-sm font-ext
+<div class="flex gap-2">
+<button onclick="pasteText()" class="bouncy-btn text-xs bg
+<button onclick="clearText()" class="bouncy-btn text-xs bg
+</div>
+</div>
+<textarea id="text-input" rows="5" oninput="updateCharCount()" cla
+<!-- NEW PRO STATS BOX (Word/Char/Line Counter) -->
+<div class="stats-box">
+<div class="stat-item">
+<div class="stat-val">∞</div>
+<div class="stat-label">WORD LIMIT</div>
+</div>
+<div class="stat-item">
+<div class="stat-val" id="word-count">0</div>
+<div class="stat-label">WORDS</div>
+</div>
+<div class="stat-item">
+<div class="stat-val" id="char-count">0</div>
+<div class="stat-label">CHARACTERS</div>
+</div>
+<div class="stat-item">
+<div class="stat-val" id="line-count">0</div>
+
+<div class="stat-label">LINES</div>
+</div>
+</div>
+<button id="generate-btn" onclick="generateAudio()" class="bouncyအသံ ထု တ်ယူ မည်
+</button>
+<div id="audio-container" class="mt-8 hidden">
+<div class="bg-slate-50 dark:bg-slate-900/80 border-2 border-s
+<p class="text-center text-xs font-extrabold text-slate-50
+<div id="visualizer" class="visualizer-container">
+<div class="wave-bar-new"></div><div class="wave-bar-n
+<div class="wave-bar-new"></div><div class="wave-bar-n
+<div class="wave-bar-new"></div><div class="wave-bar-n
+<div class="wave-bar-new"></div><div class="wave-bar-n
+<div class="wave-bar-new"></div><div class="wave-bar-n
+<div class="wave-bar-new"></div><div class="wave-bar-n
+<div class="wave-bar-new"></div><div class="wave-bar-n
+<div class="wave-bar-new"></div><div class="wave-bar-n
+<div class="wave-bar-new"></div><div class="wave-bar-n
+<div class="wave-bar-new"></div><div class="wave-bar-n
+</div>
+<audio id="audio-player" controls class="w-full mb-6 round
+<div class="mb-6 relative z-20">
+<label class="block text-xs text-slate-600 dark:text-s
+<div class="no-bounce-input flex bg-white dark:bg-slat
+<input type="text" id="custom-filename" value="My_
+<span class="bg-slate-100 dark:bg-slate-700 text-s
+</div>
+</div>
+<!-- ခလု တ်များကို သီးသန့်စီ ရှ င်းရှ င်းလင်းလင်း ခွဲထု တ်ထားပါသည် -->
+<div id="download-buttons-container" class="flex flex-col
+<a id="download-link" href="#" onclick="setDownloadNam
+
+⬇️ အသံ ဖို င် (.mp3) သီးသန့်ဒေါင်းမည်
+
+</a>
+
+<a id="download-srt-link" href="#" onclick="downloadSR
+မြန်မာစာတန်းထို း (.srt) သီးသန့်ဒေါင်းမည်
+
+📝
+
+</a>
+</div>
+</div>
+</div>
+</div>
+<script>
+// --- 3. STREAMLIT & JS COMMUNICATION --function sendMessageToStreamlitClient(type, data) {
+var outData = Object.assign({ isStreamlitMessage: true, type:
+window.parent.postMessage(outData, "*");
+}
+const Streamlit = {
+setComponentReady: function() { sendMessageToStreamlitClient("
+setFrameHeight: function() { sendMessageToStreamlitClient("str
+setComponentValue: function(value) { sendMessageToStreamlitCli
+};
+window.last_run_id = null;
+window.srtData = null; // Store base64 SRT data globally
+window.addEventListener("message", function(event) {
+if (event.data.type === "streamlit:render") {
+Streamlit.setFrameHeight();
+const args = event.data.args;
+if (args.run_id && args.run_id !== window.last_run_id) {
+window.last_run_id = args.run_id;
+if (args.error) {
+alert("အသိပေးချက်: " + args.error);
+resetButton();
+} else if (args.audio_b64) {
+// အသံ ဖို င်ကို အရင်ဖွင့်ပေးမည်
+playAudioBase64(args.audio_b64);
+// ထို့နောက် SRT ဒေတာ ရှိ/မရှိ စစ်ဆေးပြီး ခလု တ်ကို ဖော်ပြမည်
+if (args.srt_b64) {
+window.srtData = args.srt_b64;
+document.getElementById('download-srt-link').s
+} else {
+window.srtData = null;
+document.getElementById('download-srt-link').s
+
+}
+}
+}
+}
+});
+// --- 4. ORIGINAL JS LOGIC --const voices = [
+{ id: 'v1', name: 'ကို စို င်းစို င်း', gender: 'ယောက်ျားလေး' },
+{ id: 'v2', name: 'မဖွေးဖွေး', gender: 'မိန်းကလေး' },
+{ id: 'v3', name: 'ကို နေတို း', gender: 'ယောက်ျားလေး' },
+{ id: 'v4', name: 'ကို အောင်ရဲလင်း', gender: 'ယောက်ျားလေး' },
+{ id: 'v5', name: 'ကို မြင့်မြတ်', gender: 'ယောက်ျားလေး' },
+{ id: 'v6', name: 'မဝတ်မှုံ ရွှေရည်', gender: 'မိန်းကလေး' },
+{ id: 'v7', name: 'ကို ဒေါင်း', gender: 'ယောက်ျားလေး' },
+{ id: 'v8', name: 'မသက်မွန်မြင့်', gender: 'မိန်းကလေး' },
+{ id: 'v9', name: 'ကို လူ မင်း', gender: 'ယောက်ျားလေး' },
+{ id: 'v10', name: 'မအိန္ဒြာကျော်ဇင်', gender: 'မိန်းကလေး' },
+{ id: 'v11', name: 'မရွှေမှုံ ရတီ', gender: 'မိန်းကလေး' },
+{ id: 'v12', name: 'ကို ပြေတီဦး', gender: 'ယောက်ျားလေး' },
+{ id: 'v13', name: 'မသင်ဇာဝင့်ကျော်', gender: 'မိန်းကလေး' },
+];
+
+{ id: 'v14', name: 'ကို ပို င်တံ ခွန်', gender: 'ယောက်ျားလေး' }
+
+const recapStyles = [
+{ id: 'Normal', name: 'ပုံ မှ န်အသံ ', speed: 0, pitch: 0 },
+{ id: 'NyoGyi_25', name: 'ကျားကြီး ၁', speed: 0, pitch: 25 },
+{ id: 'NyoGyi_35', name: 'ကျားကြီး ၂', speed: 0, pitch: 35 },
+{ id: 'NyoGyi_45', name: 'ကျားကြီး ၃', speed: 0, pitch: 45 },
+{ id: 'Nilar_40', name: 'နီလာ ချွဲသံ ', speed: 0, pitch: 40 },
+{ id: 'Combo_15', name: 'ပေါင်းစပ် ၁၅', speed: 15, pitch: 15 },
+{ id: 'Combo_30', name: 'ပေါင်းစပ် ၃၀', speed: 30, pitch: 30 },
+{ id: 'Combo_50', name: 'ပေါင်းစပ် ၅၀', speed: 50, pitch: 50 },
+{ id: 'Pitch_20', name: 'အသံ သေး ၂၀', speed: 0, pitch: 20 },
+{ id: 'Pitch_50', name: 'အသံ သေး ၅၀', speed: 0, pitch: 50 }
+];
+const emotions = [
+
+🤩', s: 15, p: 10 },
+{ id: 'CALM', name: 'တည်ငြိမ် 😌', s: -10, p: -5 },
+{ id: 'PROFESSIONAL', name: 'သတင်း 💼', s: 0, p: -2 },
+{ id: 'NARRATIVE', name: 'ဇာတ်ကြောင်း 📖', s: -5, p: 0 },
+{ id: 'HAPPY', name: 'ပျော်ရွှင် 😊', s: 10, p: 15 },
+{ id: 'SERIOUS', name: 'လေးနက် 😠', s: -5, p: -10 },
+{ id: 'EXCITING', name: 'စိတ်လှုပ်ရှ ား
+
+🤫', s: -15, p: -20 },
+{ id: 'SAD', name: 'ဝမ်းနည်း 😢', s: -15, p: -15 },
+{ id: 'SARCASTIC', name: 'ရွဲ့ပြော 🙄', s: -10, p: 5 },
+{ id: 'ANGRY', name: 'ဒေါသထွက် 🤬', s: 20, p: -10 },
+{ id: 'FEAR', name: 'ကြောက်လန့် 😨', s: 10, p: 20 }
+{ id: 'WHISPER', name: 'တီးတို း
+
+];
+
+let selectedVoiceId = voices[0].id;
+function init() {
+updateThemeBtnText();
+document.getElementById('text-input').value = '';
+updateCharCount();
+const vGrid = document.getElementById('voices-grid');
+voices.forEach(v => {
+let btn = document.createElement('button');
+btn.className = `bouncy-btn voice-btn w-full border-2 bord
+btn.onclick = () => selectVoice(v.id, btn);
+btn.innerHTML = `
+<div class="play-icon-wrapper flex-shrink-0 w-10 h-10
+<svg class="w-4 h-4 text-white ml-1 pointer-events
+</div>
+<div class="flex flex-col text-left pointer-events-non
+<span class="text-[14px] font-bold text-slate-800
+<span class="text-[12px] text-slate-500 dark:text</div>
+`;
+vGrid.appendChild(btn);
+});
+const rGrid = document.getElementById('recap-grid');
+recapStyles.forEach(r => {
+let btn = document.createElement('button');
+btn.className = 'bouncy-btn style-btn border-2 border-slat
+btn.onclick = () => applyPreset(btn, r.speed, r.pitch);
+btn.innerText = r.name;
+rGrid.appendChild(btn);
+});
+const eGrid = document.getElementById('emotions-grid');
+emotions.forEach(e => {
+let btn = document.createElement('button');
+
+btn.className = 'bouncy-btn style-btn border-2 border-slat
+btn.onclick = () => applyPreset(btn, e.s, e.p);
+btn.innerText = e.name;
+eGrid.appendChild(btn);
+});
+updateSlider('speed', document.getElementById('speed').value)
+updateSlider('pitch', document.getElementById('pitch').value)
+}
+function toggleTheme() {
+document.documentElement.classList.toggle('dark');
+updateThemeBtnText();
+}
+function updateThemeBtnText() {
+const isDark = document.documentElement.classList.contains('da
+document.getElementById('themeBtn').innerText = isDark ? "
+အ
+
+☀️
+
+}
+function selectVoice(id, btnElement) {
+
+selectedVoiceId = id;
+document.querySelectorAll('.voice-btn').forEach(b => b.classLi
+btnElement.classList.add('active-btn');
+}
+function applyPreset(btnElement, speed, pitch) {
+document.querySelectorAll('.style-btn').forEach(b => b.classLi
+btnElement.classList.add('active-btn');
+document.getElementById('speed').value = speed;
+document.getElementById('pitch').value = pitch;
+updateSlider('speed', speed);
+updateSlider('pitch', pitch);
+}
+function changeVal(id, amount) {
+let el = document.getElementById(id);
+let newVal = parseInt(el.value) + amount;
+if(newVal > 100) newVal = 100;
+if(newVal < -100) newVal = -100;
+el.value = newVal;
+updateSlider(id, newVal);
+document.querySelectorAll('.style-btn').forEach(b => b.classLi
+
+}
+function updateSlider(id, val) {
+const min = -100;
+const max = 100;
+const percentage = ((val - min) / (max - min)) * 100;
+document.getElementById(id + '-fill').style.width = percentage
+let displayVal = val > 0 ? "+" + val : val;
+document.getElementById(id + '-val').innerText = displayVal;
+}
+function updateCharCount() {
+let text = document.getElementById('text-input').value;
+let charCount = text.length;
+let wordCount = text.trim() === '' ? 0 : text.trim().split(/\s
+let lineCount = text === '' ? 0 : text.split(/\r\n|\r|\n/).len
+document.getElementById('char-count').innerText = charCount.to
+document.getElementById('word-count').innerText = wordCount.to
+document.getElementById('line-count').innerText = lineCount.to
+}
+async function pasteText() {
+try {
+const text = await navigator.clipboard.readText();
+const inputArea = document.getElementById('text-input');
+inputArea.value = inputArea.value + text;
+updateCharCount();
+}
+
+} catch (err) { alert("စာသား ကူ းထည့်၍ မရပါ။ စာရို က်မည့်အကွက်ကို ဖိ၍ Past
+
+function clearText() {
+document.getElementById('text-input').value = '';
+updateCharCount();
+document.getElementById('audio-container').classList.add('hidd
+// ခလု တ်များကို ဝှ က်မည်
+document.getElementById('download-buttons-container').style.di
+window.srtData = null;
+}
+function setDownloadName() {
+
+let customName = document.getElementById('custom-filename').va
+if(!customName) customName = "SaiMyanmar_TTS";
+// Audio ဖို င်အမည်ပြောင်းခြင်း
+let audioLink = document.getElementById('download-link');
+if(audioLink.href && audioLink.href !== "#") {
+audioLink.download = customName + ".mp3";
+}
+}
+// --- NEW FUNC: SRT Download လု ပ်ရန် --function downloadSRT(e) {
+e.preventDefault();
+if (!window.srtData) {
+alert("စာတန်းထို း (SRT) ဖို င် အဆင်သင့်မဖြစ်သေးပါ။");
+return;
+}
+try {
+// Base64 မှ UTF-8 စာသားသို့ ပြောင်းလဲခြင်း
+const byteString = atob(window.srtData);
+const ab = new ArrayBuffer(byteString.length);
+const ia = new Uint8Array(ab);
+for (let i = 0; i < byteString.length; i++) {
+ia[i] = byteString.charCodeAt(i);
+}
+const blob = new Blob([ab], { type: 'text/plain;charset=ut
+let customName = document.getElementById('custom-filename
+if(!customName) customName = "SaiMyanmar_TTS";
+const url = URL.createObjectURL(blob);
+const a = document.createElement('a');
+a.href = url;
+a.download = customName + ".srt"; // အမည်တူ SRT file အဖြစ်
+document.body.appendChild(a);
+a.click();
+document.body.removeChild(a);
+URL.revokeObjectURL(url);
+} catch (err) {
+alert("SRT ဒေါင်းလု ဒ်ဆွဲရာတွင် အမှ ားအယွင်းဖြစ်ပေါ်ခဲ့ ပါသည်: " + err.messag
+}
+}
+
+const audioPlayer = document.getElementById('audio-player');
+const visualizerContainer = document.getElementById('visualizer')
+audioPlayer.addEventListener('play', () => { visualizerContainer.c
+audioPlayer.addEventListener('pause', () => { visualizerContainer
+audioPlayer.addEventListener('ended', () => { visualizerContainer
+function playAudioBase64(b64) {
+audioPlayer.src = "data:audio/mp3;base64," + b64;
+const container = document.getElementById('audio-container');
+container.classList.remove('hidden');
+// အသံ ဖို င်ရသည်နှ င့် ခလု တ်များကို ပြပေးမည်
+document.getElementById('download-buttons-container').style.di
+document.getElementById('download-link').href = audioPlayer.sr
+setDownloadName();
+resetButton();
+setTimeout(() => {
+Streamlit.setFrameHeight();
+}, 100);
+}
+function resetButton() {
+const btn = document.getElementById('generate-btn');
+btn.innerHTML = "အသံ ထု တ်ယူ မည်";
+btn.classList.remove('opacity-75', 'cursor-wait');
+btn.style.pointerEvents = 'auto'; // ခလု တ်ကို ပြန်ဖွင့်ပေးခြင်း
+Streamlit.setFrameHeight();
+}
+function generateAudio() {
+let originalText = document.getElementById('text-input').value
+const speed = document.getElementById('speed').value;
+const pitch = document.getElementById('pitch').value;
+const btn = document.getElementById('generate-btn');
+if(!originalText.trim()) { alert("ကျေးဇူ းပြု၍ စာသားထည့်သွင်းပါ။"); ret
+btn.innerHTML = "ခဏစောင့်ပါ... (Generating...)";
+btn.classList.add('opacity-75', 'cursor-wait');
+btn.style.pointerEvents = 'none'; // ခလု တ်ကို ထပ်နှိပ်၍မရအောင် ပိတ်ထား
+
+let processedText = originalText;
+const engToMmMap = { 'A':'အေ ', 'B':'ဘီ ', 'C':'စီ ', 'D':'ဒီ ',
+processedText = processedText.replace(/\b[A-Z]{2,}\b/g, functi
+let spelledOut = '';
+for(let i=0; i<match.length; i++) { spelledOut += engToMmM
+return spelledOut;
+});
+const wordMap = { 'subscribe': 'ဆပ်စခရို က်ဘ်', 'like': 'လို က်ခ်', 'f
+for (let word in wordMap) {
+let regex = new RegExp('\\b' + word + '\\b', 'gi');
+processedText = processedText.replace(regex, wordMap[word]
+}
+// --- Send Data to Streamlit Python Backend --Streamlit.setComponentValue({
+text: processedText,
+voice: selectedVoiceId,
+speed: speed,
+pitch: pitch,
+timestamp: Date.now()
+});
+}
+window.onload = function() {
+init();
+Streamlit.setComponentReady();
+setTimeout(() => Streamlit.setFrameHeight(), 100);
+const resizeObserver = new ResizeObserver(() => Streamlit.setF
+resizeObserver.observe(document.body);
+};
+</script>
+</body>
+</html>
+"""
+# --- 3. Streamlit Custom Component ဖန်တီးခြင်း --# (အရေးကြီးသည် - Browser တွင် ကု တ်အဟောင်းများငြိနေမှုကို ရှ င်းလင်းရန် Directory နာမည်အသစ်ပေ
+component_dir = os.path.join(os.path.dirname(__file__), "tts_ui_component_
+os.makedirs(component_dir, exist_ok=True)
+html_path = os.path.join(component_dir, "index.html")
+
+write_html = True
+if os.path.exists(html_path):
+with open(html_path, "r", encoding="utf-8") as f:
+if f.read() == HTML_CODE:
+write_html = False
+if write_html:
+with open(html_path, "w", encoding="utf-8") as f:
+f.write(HTML_CODE)
+tts_ui = components.declare_component("tts_ui", path=component_dir)
+# --- 4. Python Backend အလု ပ်လု ပ်မည့် အပို င်း --VOICE_MAP = {
+"v1": "my-MM-ThihaNeural", "v2": "my-MM-NilarNeural", "v3": "it-IT-Giu
+"v4": "en-AU-WilliamMultilingualNeural", "v5": "en-US-AndrewMultilingu
+"v6": "en-US-AvaMultilingualNeural", "v7": "en-US-BrianMultilingualNeu
+"v8": "en-US-EmmaMultilingualNeural", "v9": "fr-FR-RemyMultilingualNeu
+"v10": "fr-FR-VivienneMultilingualNeural", "v11": "de-DE-SeraphinaMult
+"v12": "de-DE-FlorianMultilingualNeural", "v13": "pt-BR-ThalitaMultili
+"v14": "ko-KR-HyunsuMultilingualNeural"
+}
+# --- ကို ယ်ပို င် Custom Subtitle Maker (စကားလုံ း တစ်ဝက်မပြတ်စေမယ့် Smart Split) --class SmartSubMaker:
+def __init__(self, full_text, duration_seconds):
+# စာကြောင်းထဲက အင်တာကို Space ဖြင့် အစားထို းပါမည် (သဘာဝကျကျ ခွဲနို င်ရန်)
+self.full_text = full_text.strip().replace('\n', ' ')
+self.duration_seconds = duration_seconds
+# စာတန်းထို း တစ်ကြောင်းမှ ာ ပါဝင်မယ့် အများဆုံ း စာလုံ းရေ (ဥပမာ ၆၀)
+self.max_chars_per_line = 60
+def safe_myanmar_split(self, text):
+"""မြန်မာစာ သရ၊ အသတ် များကို တစ်ဝက်မပြတ်စေဘဲ စာလုံ းရေအတို င်း အန္တရာယ်ကင်းစွာ ဖြတ်ပေးမ
+chunks = []
+words = text.split(' ') # Spacebar ချန်ထားပါက ၎င်းအတို င်း အရင်ဆုံ းခွဲပါမည်
+current_chunk = ""
+for word in words:
+if not word:
+continue
+# ပေါင်းထည့်လို က်ပါက သတ်မှ တ်ထားသော စာလုံ းရေထက် ကျော်သွားလျှင် (Spacebar ချန်ထ
+if current_chunk and len(current_chunk) + len(word) + 1 > self
+
+chunks.append(current_chunk.strip())
+current_chunk = word + " "
+else:
+current_chunk += word + " "
+# Space လုံ းဝမပါဘဲ စာလုံ းတွေဆက်နေပြီး သတ်မှ တ်ထားသော စာလုံ းရေထက် အများကြီးကျော်
+while len(current_chunk) > self.max_chars_per_line + 20:
+split_idx = self.max_chars_per_line
+# စာလုံ းတစ်ဝက်ပြတ်မသွားစေရန် ရှေ့သို့ဆက်တို းစစ်ဆေးမည်
+while split_idx < len(current_chunk):
+char = current_chunk[split_idx]
+# \u102B-\u103E နှ င့် \u105E-\u105F သည် မြန်မာစာ သရ၊ အသတ်၊
+if '\u102B' <= char <= '\u103E' or '\u105E' <= char <=
+split_idx += 1 # အသတ်၊ သရ ဖြစ်နေလျှင် ဖြတ်ခွင့်မပေးဘဲ ရှေ့တို းမ
+else:
+break # အသတ်၊ သရ မဟု တ်သော အက္ခရာအသစ်ရောက်မှ သာ ဖြတ်ပါမည်
+chunks.append(current_chunk[:split_idx].strip())
+current_chunk = current_chunk[split_idx:]
+if current_chunk.strip():
+chunks.append(current_chunk.strip())
+return chunks
+def generate_subs(self):
+# တကယ်လို့ စာသားမပါရင် သို့မဟု တ် အသံ မရှိရင် Fallback ထု တ်ပေးမည်
+if not self.full_text or self.duration_seconds <= 0:
+return "1\n00:00:00,000 --> 00:00:05,000\n[အသံ ထွက်နေပါသည်... စာ
+# ပု ဒ်မ ဖြင့် အရင်ခွဲမည်
+raw_sentences = [s.strip() + "။" for s in self.full_text.split("။")
+if not raw_sentences:
+raw_sentences = [self.full_text]
+# စာကြောင်းရှ ည်များကို စာလုံ းရေကန့်သတ်ချက်ဖြင့် ထပ်ခွဲမည် (Syllable မပြတ်စေဘဲ)
+final_chunks = []
+for rs in raw_sentences:
+split_parts = self.safe_myanmar_split(rs)
+final_chunks.extend(split_parts)
+# အချိန်ဘယ်လောက်ကြာမလဲ တွက်ချက်ရန် စာလုံ းရေ စု စု ပေါင်းရှ ာမည်
+total_chars = sum(len(c) for c in final_chunks)
+
+if total_chars == 0:
+total_chars = 1 # 0 ဖြင့် စားခြင်းကို ကာကွယ်ရန်
+srt_text = ""
+current_time = 0.0
+for i, chunk in enumerate(final_chunks, 1):
+char_ratio = len(chunk) / total_chars
+# စာကြောင်းတစ်ကြောင်းအတွက် ကြာချိန် (စက္ကန့်)
+chunk_duration = self.duration_seconds * char_ratio
+start_time = current_time
+end_time = current_time + chunk_duration
+srt_text += f"{i}\n"
+srt_text += f"{self._format_time(start_time)} --> {self._forma
+srt_text += f"{chunk}\n\n"
+current_time = end_time
+return srt_text
+def _format_time(self, seconds_float):
+hours = int(seconds_float // 3600)
+minutes = int((seconds_float % 3600) // 60)
+secs = int(seconds_float % 60)
+millis = int(round((seconds_float - int(seconds_float)) * 1000))
+return f"{hours:02d}:{minutes:02d}:{secs:02d},{millis:03d}"
+# --- Streamlit နဲ့ Async ငြိခြင်းကို ကာကွယ်ရန် သီးသန့် Thread ခွဲ၍ Run မည့်စနစ် --def run_tts_in_thread(text, voice_id, speed, pitch):
+rate = f"{speed}%" if str(speed).startswith(("+", "-")) else f"+{speed
+pitch_str = f"{pitch}Hz" if str(pitch).startswith(("+", "-")) else f"+
+real_voice = VOICE_MAP.get(voice_id, "my-MM-ThihaNeural")
+output_file = f"temp_{uuid.uuid4().hex}.mp3"
+# ရလဒ် သို့မဟု တ် Error ဖမ်းယူ ရန်
+result = []
+def _async_task():
+try:
+# 1. Streamlit ရဲ့ Main Event Loop နဲ့ မရောအောင် Loop အသစ်ဖန်တီးခြင်း
+loop = asyncio.new_event_loop()
+asyncio.set_event_loop(loop)
+
+# 2. အသံ ဖို င်ကို တို က်ရို က်ထု တ်ယူ ခြင်း (Streaming မလု ပ်တော့ ပါ - ဤနည်းက အမြန်ဆုံ
+communicate = edge_tts.Communicate(text, real_voice, rate=rate
+loop.run_until_complete(communicate.save(output_file))
+loop.close()
+# 3. ထွက်လာသော အသံ ဖို င်၏ အရှ ည် (Duration) ကို တို င်းတာခြင်း
+audio = mutagen.mp3.MP3(output_file)
+duration_in_seconds = audio.info.length
+# 4. SmartSubMaker ဖြင့် အသံ အရှ ည်ပေါ်မူ တည်ပြီး စာတန်းထို း အချိန်ကို က် ဖန်တီးခြင်း
+sub_maker = SmartSubMaker(text, duration_in_seconds)
+srt_text = sub_maker.generate_subs()
+result.append((output_file, srt_text)) # Audio File နှ င့် SRT စာသ
+except Exception as e:
+result.append(e)
+# Thread အသစ်ဖြင့် ခွဲ၍ အလု ပ်လု ပ်ခို င်းခြင်း
+t = threading.Thread(target=_async_task)
+t.start()
+t.join() # အသံ ထု တ်ပြီးစီးသည်အထိ စောင့်မည်
+if isinstance(result[0], Exception):
+raise result[0]
+return result[0]
+# --- Streamlit Session States --if "audio_b64" not in st.session_state:
+st.session_state.audio_b64 = None
+if "srt_b64" not in st.session_state:
+st.session_state.srt_b64 = None
+if "error" not in st.session_state:
+st.session_state.error = None
+if "last_timestamp" not in st.session_state:
+st.session_state.last_timestamp = None
+# --- UI Component ကို ခေါ်ယူ ခြင်း --ui_state = tts_ui(
+audio_b64=st.session_state.audio_b64,
+srt_b64=st.session_state.srt_b64,
+error=st.session_state.error,
+run_id=st.session_state.last_timestamp,
+
+key="tts_ui_main"
+)
+# --- UI မှ အချက်အလက်များ ရောက်လာသောအခါ --if ui_state and ui_state.get("timestamp") != st.session_state.last_timesta
+st.session_state.last_timestamp = ui_state["timestamp"]
+st.session_state.error = None
+st.session_state.srt_b64 = None
+text = ui_state.get("text", "")
+voice = ui_state.get("voice", "v1")
+speed = ui_state.get("speed", 0)
+pitch = ui_state.get("pitch", 0)
+# --- ပြိုင်တူ Max 10 ကန့်သတ်ချက်ကို စစ်ဆေးခြင်း --acquired = global_semaphore.acquire(blocking=False)
+if not acquired:
+# ၁၀ ဦး ပြည့်နေပါက
+st.session_state.error = "
+
+🚨 ဆာဗာအလု ပ်များနေပါသည်။ ပြိုင်တူ အသုံ းပြုသူ ၁၀ ဦးပြည့်
+
+st.session_state.audio_b64 = None
+st.session_state.srt_b64 = None
+st.rerun()
+
+try:
+# မြန်ဆန်ပြီး Thread မငြိစေသော စနစ်ဖြင့် အသံ နှ င့် SRT ကို ထု တ်ခြင်း
+output_file, srt_text = run_tts_in_thread(text, voice, speed, pitc
+# Audio ဖို င်ကို Base64 ပြောင်းခြင်း
+with open(output_file, "rb") as f:
+audio_b64 = base64.b64encode(f.read()).decode("utf-8")
+# SRT စာသားကို Base64 ပြောင်းခြင်း (မြန်မာစာ Unicode မပျက်စေရန် utf-8 ဖြင့် encod
+srt_b64 = base64.b64encode(srt_text.encode("utf-8")).decode("utf-8
+os.remove(output_file)
+st.session_state.audio_b64 = audio_b64
+st.session_state.srt_b64 = srt_b64
+# --- အသံ အောင်မြင်စွာ ထု တ်ပြီးပါက မှ တ်တမ်းတင်မည် --update_stats()
+except Exception as e:
+
+# တကယ်လို့ mutagen မရှိရင် တပ်မယ့် error မျိုးကို ဖမ်းပေးမည်
+if "mutagen" in str(e).lower() or "No module named 'mutagen'" in s
+st.session_state.error = "
+Server တွင် 'mutagen' library ထည့်သွ
+else:
+
+🚨
+
+st.session_state.error = str(e)
+st.session_state.audio_b64 = None
+st.session_state.srt_b64 = None
+finally:
+# အလု ပ်လု ပ်ပြီးသွားပါက နောက်လူ အသုံ းပြုနို င်ရန် နေရာပြန်ဖယ်ပေးခြင်း
+global_semaphore.release()
+st.rerun()
+
+requirements.txt
+streamlit
+edge-tts
+mutagen
+
+

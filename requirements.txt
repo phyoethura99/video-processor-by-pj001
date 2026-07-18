@@ -4,3 +4,5 @@ pydub
 moviepy
 ffmpeg-python
 python-dotenv
+
+edge-tts
