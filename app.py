@@ -81,7 +81,12 @@ def get_video_resolution(video_path):
     cmd = ['ffprobe', '-v', 'error', '-select_streams', 'v:0', '-show_entries', 'stream=width,height', '-of', 'csv=s=x:p=0', video_path]
     result = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
     res = result.stdout.strip().split('x')
-    return int(res[0]), int(res[1])
+    w, h = int(res[0]), int(res[1])
+    # Cap resolution at 1080p for stability on Streamlit Cloud
+    if w > 1920:
+        h = int(h * (1920 / w))
+        w = 1920
+    return w, h
 
 def get_audio_duration(audio_path):
     cmd = ['ffprobe', '-v', 'error', '-show_entries', 'format=duration', '-of', 'default=noprint_wrappers=1:nokey=1', audio_path]
@@ -199,7 +204,13 @@ def main():
 
     if st.button("🚀 Start Processing"):
         if not text_input or not video_file: st.error("❌ Provide text and video."); return
+        
+        # Early cleanup of previous temp files
         temp_dir = "temp_processing"
+        import shutil
+        if os.path.exists(temp_dir):
+            shutil.rmtree(temp_dir, ignore_errors=True)
+            
         audio_dir, video_dir, final_segments_dir = [os.path.join(temp_dir, d) for d in ["audio", "video", "final_segments"]]
         for d in [audio_dir, video_dir, final_segments_dir]: os.makedirs(d, exist_ok=True)
         video_path = os.path.join(video_dir, "input_video.mp4")
