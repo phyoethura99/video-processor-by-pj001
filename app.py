@@ -166,15 +166,27 @@ def process_segment(index, text, video_segment, audio_dir, final_segments_dir, v
 
 def merge_videos(video_list, output_path):
     """Merge multiple video segments into one"""
+    # Filter out None values in case some segments failed
+    valid_videos = [v for v in video_list if v is not None and os.path.exists(v)]
+    if not valid_videos:
+        raise Exception("No valid video segments found to merge.")
+
     concat_file = "concat_list.txt"
     with open(concat_file, 'w') as f:
-        for video in video_list:
+        for video in valid_videos:
             f.write(f"file '{os.path.abspath(video)}'\n")
     
     cmd = ['ffmpeg', '-y', '-f', 'concat', '-safe', '0', '-i', concat_file, '-c', 'copy', output_path]
-    subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    result = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+    
     if os.path.exists(concat_file):
         os.remove(concat_file)
+        
+    if result.returncode != 0:
+        raise Exception(f"FFmpeg Merge Error: {result.stderr}")
+    
+    if not os.path.exists(output_path):
+        raise Exception("Final output file was not created by FFmpeg.")
 
 def main():
     st.title("🎬 Video & Text Processor with TTS")
@@ -259,11 +271,19 @@ def main():
             
             st.write("🎞️ Merging final video...")
             output_video = "final_output.mp4"
-            merge_videos(final_video_segments, output_video)
-            status.update(label="✅ Processing Complete!", state="complete")
+            try:
+                merge_videos(final_video_segments, output_video)
+                status.update(label="✅ Processing Complete!", state="complete")
+            except Exception as e:
+                st.error(f"❌ Merge Failed: {str(e)}")
+                status.update(label="❌ Processing Failed", state="error")
+                return
         
-        with open(output_video, "rb") as f:
-            st.download_button("📥 Download Final Video", f.read(), "output_video.mp4", "video/mp4")
+        if os.path.exists(output_video):
+            with open(output_video, "rb") as f:
+                st.download_button("📥 Download Final Video", f.read(), "output_video.mp4", "video/mp4")
+        else:
+            st.error("❌ Final video file not found. Please try again.")
         
         import shutil
         shutil.rmtree(temp_dir, ignore_errors=True)
