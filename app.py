@@ -189,7 +189,7 @@ def speed_adjust_segment(index, video_segment, audio_path, adjusted_dir):
 
         cmd = ['ffmpeg', '-y', '-i', video_segment, '-i', audio_path,
                '-filter_complex', filter_complex, '-map', '[v_concat]', '-map', '[a_concat]',
-               '-c:v', 'libx264', '-preset', 'fast', '-c:a', 'aac',
+               '-c:v', 'libx264', '-preset', 'ultrafast', '-c:a', 'aac',
                '-shortest', output_path]
 
     result = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
@@ -305,7 +305,7 @@ def build_cycle_filter(video_path, audio_path, chunk_duration,
             if f1_z:
                 filter_parts.append(
                     f"[0:v]trim=start={f1_start},select=eq(n\\,0),"
-                    f"setpts=PTS-STARTPTS{f1_z}[vf1_{i}];")
+                    f"setpts=PTS-STARTPTS,{f1_z}[vf1_{i}];")
             else:
                 filter_parts.append(
                     f"[0:v]trim=start={f1_start},select=eq(n\\,0),"
@@ -319,7 +319,7 @@ def build_cycle_filter(video_path, audio_path, chunk_duration,
             if f2_z:
                 filter_parts.append(
                     f"[0:v]trim=start={f2_start},select=eq(n\\,0),"
-                    f"setpts=PTS-STARTPTS{f2_z}[vf2_{i}];")
+                    f"setpts=PTS-STARTPTS,{f2_z}[vf2_{i}];")
             else:
                 filter_parts.append(
                     f"[0:v]trim=start={f2_start},select=eq(n\\,0),"
@@ -360,7 +360,7 @@ def process_chunk_with_retry(index, chunk_path, chunk_duration,
 
             cmd = ['ffmpeg', '-y', '-i', chunk_path, '-i', audio_path,
                    '-filter_complex', filter_complex, '-map', '[v]',
-                   '-c:v', 'libx264', '-preset', 'fast', '-c:a', 'aac',
+                   '-c:v', 'libx264', '-preset', 'ultrafast', '-c:a', 'aac',
                    '-shortest', output_path]
             result = subprocess.run(cmd, stdout=subprocess.PIPE,
                                     stderr=subprocess.PIPE, text=True)
