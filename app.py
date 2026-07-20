@@ -528,20 +528,20 @@ def main():
                 # STEP 1+2: TTS + Split Video (PARALLEL)
                 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
                 step_status_placeholder.markdown("**Step 1/5:** Generating TTS audio & splitting video...")
+                progress_detail = st.empty()
                 step_start = time.time()
 
-                with concurrent.futures.ThreadPoolExecutor(max_workers=2) as executor:
-                    tts_future = executor.submit(
-                        lambda: asyncio.run(
-                            generate_all_tts(paragraphs, audio_dir, voice_id,
-                                             final_speed, final_pitch)
-                        )
-                    )
-                    split_future = executor.submit(
-                        split_video, video_path, num_paragraphs, video_dir
-                    )
-                    tts_future.result()
-                    video_segments, _ = split_future.result()
+                # Generate TTS one by one with progress
+                progress_detail.markdown(f"🔊 Generating TTS 1/{num_paragraphs}...")
+                for i, paragraph in enumerate(paragraphs):
+                    asyncio.run(generate_tts_async(paragraph, os.path.join(audio_dir, f"audio_{i}.mp3"), voice_id, final_speed, final_pitch))
+                    progress_detail.markdown(f"🔊 Generating TTS {i+2}/{num_paragraphs}...")
+                progress_detail.markdown(f"✅ TTS complete ({num_paragraphs}/{num_paragraphs})")
+
+                # Split video
+                progress_detail.markdown(f"✂️ Splitting video into {num_paragraphs} segments...")
+                video_segments, _ = split_video(video_path, num_paragraphs, video_dir)
+                progress_detail.markdown(f"✅ Split complete ({num_paragraphs} segments)")
 
                 step12_elapsed = time.time() - step_start
                 progress_bar.progress(0.15)
@@ -550,7 +550,7 @@ def main():
                 if os.path.exists(video_path):
                     os.remove(video_path)
 
-                st.write("✅ TTS + Split complete.")
+                progress_detail.markdown(f"✅ TTS + Split complete ({step12_elapsed:.1f}s)")
 
                 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
                 # STEP 3: Speed-adjust each segment
@@ -577,20 +577,23 @@ def main():
                         # Update progress
                         done = sum(1 for x in adjusted_segments if x is not None)
                         progress_bar.progress(0.15 + 0.30 * done / num_paragraphs)
+                        progress_detail.markdown(f"⚡ Segment {done}/{num_paragraphs} speed adjusted")
 
                 gc.collect()
                 step3_elapsed = time.time() - step_start
-                st.write(f"✅ All {num_paragraphs} segments speed-adjusted.")
+                progress_detail.markdown(f"✅ All {num_paragraphs} segments speed-adjusted ({step3_elapsed:.1f}s)")
 
                 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
                 # STEP 4: Merge all speed-adjusted segments
                 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
                 step_status_placeholder.markdown("**Step 3/5:** Merging segments...")
+                progress_detail.markdown("🔗 Merging segments...")
                 step_start = time.time()
                 merged_video = os.path.join(temp_dir, "merged_video.mp4")
                 merge_speed_adjusted_segments(adjusted_segments, merged_video)
                 progress_bar.progress(0.50)
-                st.write("✅ Segments merged.")
+                step4_elapsed = time.time() - step_start
+                progress_detail.markdown(f"✅ Segments merged ({step4_elapsed:.1f}s)")
                 gc.collect()
 
                 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -602,6 +605,7 @@ def main():
 
                 step_status_placeholder.markdown(
                     f"**Step 4/5:** Processing {num_chunks} chunks with effects...")
+                progress_detail.markdown("✂️ Splitting into chunks...")
                 step56_start = time.time()
 
                 processed_chunks = [None] * num_chunks
@@ -615,8 +619,9 @@ def main():
                            '-i', merged_video, '-c:v', 'copy', '-c:a', 'copy',
                            '-avoid_negative_ts', 'make_zero', chunk_path]
                     subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+                    progress_detail.markdown(f"✂️ Chunk {i+1}/{num_chunks} split")
 
-                st.write(f"✅ Split into {num_chunks} chunks.")
+                progress_detail.markdown(f"✅ Split into {num_chunks} chunks")
 
                 # Process chunks (1 worker for RAM safety)
                 with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
@@ -639,9 +644,11 @@ def main():
                         # Update progress
                         done = sum(1 for x in processed_chunks if x is not None)
                         progress_bar.progress(0.50 + 0.40 * done / num_chunks)
+                        progress_detail.markdown(f"🎬 Chunk {done}/{num_chunks} processed with effects")
 
                 gc.collect()
-                st.write(f"✅ All {num_chunks} chunks processed.")
+                step56_elapsed = time.time() - step56_start
+                progress_detail.markdown(f"✅ All {num_chunks} chunks processed ({step56_elapsed:.1f}s)")
 
                 # Cleanup merged video
                 if os.path.exists(merged_video):
@@ -651,11 +658,14 @@ def main():
                 # STEP 6: Merge processed chunks
                 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
                 step_status_placeholder.markdown("**Step 5/5:** Merging final video...")
+                progress_detail.markdown("🔗 Merging final video...")
                 step_start = time.time()
                 output_video = "final_output.mp4"
                 try:
                     merge_videos(processed_chunks, output_video)
                     progress_bar.progress(1.0)
+                    step6_elapsed = time.time() - step_start
+                    progress_detail.markdown(f"✅ Final video merged ({step6_elapsed:.1f}s)")
                     status.update(label="✅ Complete!", state="complete")
                 except Exception as e:
                     st.error(f"❌ Final merge failed: {e}")
