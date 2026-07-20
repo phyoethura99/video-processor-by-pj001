@@ -296,7 +296,7 @@ def split_single_chunk(index, merged_path, chunk_duration, total_duration, outpu
 
 def build_cycle_filter(video_path, audio_path, chunk_duration,
                        play_dur, freeze1_dur, freeze2_dur,
-                       freeze1_zoom, freeze2_zoom):
+                       freeze1_zoom, freeze2_zoom, zoom_dur):
     """Build FFmpeg filter complex for cycle repeat on a chunk."""
     width, height = get_video_resolution(video_path)
     fps = 30
@@ -309,8 +309,7 @@ def build_cycle_filter(video_path, audio_path, chunk_duration,
 
     res_str = f"{width}x{height}"
 
-    f1_frames = freeze1_dur * fps
-    f2_frames = freeze2_dur * fps
+    zoom_frames = max(int(zoom_dur * fps), 1)
 
     def make_zoom_filter(duration_frames, zoom_type):
         if zoom_type == "Zoom In":
@@ -323,8 +322,8 @@ def build_cycle_filter(video_path, audio_path, chunk_duration,
                     f"d={duration_frames}:s={res_str}:fps={fps}")
         return None
 
-    f1_z = make_zoom_filter(f1_frames, freeze1_zoom)
-    f2_z = make_zoom_filter(f2_frames, freeze2_zoom)
+    f1_z = make_zoom_filter(zoom_frames, freeze1_zoom) if freeze1_zoom != "None" else None
+    f2_z = make_zoom_filter(zoom_frames, freeze2_zoom) if freeze2_zoom != "None" else None
 
     filter_parts = []
     concat_inputs = []
@@ -378,7 +377,7 @@ def build_cycle_filter(video_path, audio_path, chunk_duration,
 def process_chunk_with_retry(index, chunk_path, chunk_duration,
                              final_dir,
                              play_dur, freeze1_dur, freeze2_dur,
-                             freeze1_zoom, freeze2_zoom,
+                             freeze1_zoom, freeze2_zoom, zoom_dur,
                              max_retries=3):
     """Process a single chunk with cycle repeat and zoom effects."""
     audio_path = os.path.join(final_dir, f"chunk_audio_{index}.mp3")
@@ -392,7 +391,7 @@ def process_chunk_with_retry(index, chunk_path, chunk_duration,
             filter_complex = build_cycle_filter(
                 chunk_path, audio_path, chunk_duration,
                 play_dur, freeze1_dur, freeze2_dur,
-                freeze1_zoom, freeze2_zoom
+                freeze1_zoom, freeze2_zoom, zoom_dur
             )
 
             cmd = ['ffmpeg', '-y', '-i', chunk_path, '-i', audio_path,
@@ -465,11 +464,12 @@ def main():
         play_duration = st.slider("▶️ Play Duration (s)", 1, 5, 3)
         col3, col4 = st.columns(2)
         with col3:
-            freeze1_duration = st.slider("❄️ Freeze 1 (s)", 1, 3, 1)
+            freeze1_duration = st.slider("❄️ Freeze 1 (s)", 0, 2, 1)
             freeze1_zoom = st.selectbox("Zoom 1", ["None", "Zoom In", "Zoom Out"])
         with col4:
-            freeze2_duration = st.slider("❄️ Freeze 2 (s)", 1, 3, 1)
+            freeze2_duration = st.slider("❄️ Freeze 2 (s)", 0, 2, 1)
             freeze2_zoom = st.selectbox("Zoom 2", ["None", "Zoom In", "Zoom Out"])
+        zoom_duration = st.slider("🔍 Zoom Duration (s)", 0.1, 1.0, 0.5)
         st.markdown("---")
         text_input = st.text_area("📝 Enter Text", height=200)
         if text_input:
@@ -627,7 +627,7 @@ def main():
                             min(CHUNK_DURATION, merged_duration - i * CHUNK_DURATION),
                             final_dir,
                             play_duration, freeze1_duration, freeze2_duration,
-                            freeze1_zoom, freeze2_zoom
+                            freeze1_zoom, freeze2_zoom, zoom_duration
                         ): i for i in range(num_chunks)
                     }
                     for future in concurrent.futures.as_completed(futures):
