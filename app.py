@@ -127,14 +127,18 @@ def get_audio_duration(audio_path):
     return float(result.stdout.strip())
 
 def split_video(video_path, num_segments, output_dir):
-    """Split video into segments and save to output_dir to avoid cluttering current directory."""
+    """Split video into segments with re-encoding for accurate frame-level cutting."""
     duration = get_video_duration(video_path)
     segment_duration = duration / num_segments
     segments = []
     for i in range(num_segments):
         start_time = i * segment_duration
         output_path = os.path.join(output_dir, f"segment_{i}.mp4")
-        cmd = ['ffmpeg', '-y', '-ss', str(start_time), '-t', str(segment_duration), '-i', video_path, '-c', 'copy', output_path]
+        # Use -c:v libx264 -preset fast -c:a aac for accurate segment splitting
+        # (not -c copy, which cuts at keyframes only and causes duration inaccuracy)
+        cmd = ['ffmpeg', '-y', '-ss', str(start_time), '-t', str(segment_duration),
+               '-i', video_path, '-c:v', 'libx264', '-preset', 'fast', '-c:a', 'aac',
+               '-avoid_negative_ts', 'make_zero', output_path]
         subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
         segments.append(output_path)
     return segments, segment_duration
@@ -162,12 +166,36 @@ def process_segment_with_retry(index, text, video_segment, audio_path, final_seg
                 width = 1280
             
             res_str = f"{width}x{height}"
-            zoom_in = f"scale={width}:{height},setsar=1,zoompan=z='min(zoom+0.0015,1.1)':d=1:s={res_str}:fps=30"
-            zoom_out = f"scale={width}:{height},setsar=1,zoompan=z='max(zoom-0.0015,1.0)':d=1:s={res_str}:fps=30"
-            no_zoom = f"scale={width}:{height},setsar=1"
+            fps = 30
+            # Calculate total frames for each freeze section
+            f1_frames = freeze1_dur * fps
+            f2_frames = freeze2_dur * fps
             
-            f1_z = zoom_in if freeze1_zoom == "Zoom In" else (zoom_out if freeze1_zoom == "Zoom Out" else no_zoom)
-            f2_z = zoom_in if freeze2_zoom == "Zoom In" else (zoom_out if freeze2_zoom == "Zoom Out" else no_zoom)
+            # Zoom expressions: total zoom change over freeze_duration
+            # Zoom In: from 1.0 to 1.15 (15% zoom) over freeze duration
+            # Zoom Out: from 1.15 to 1.0 (back to normal) over freeze duration
+            # Use on=1 to track frame number, compute zoom per frame
+            zoom_in = f"scale={width}:{height},setsar=1,zoompan=z='min(1+0.15*on/{f1_frames},1.15)':d={f1_frames}:s={res_str}:fps={fps}"
+            zoom_out = f"scale={width}:{height},setsar=1,zoompan=z='max(1.15-0.15*on/{f1_frames},1.0)':d={f1_frames}:s={res_str}:fps={fps}"
+            no_zoom = f"scale={width}:{height},setsar=1,loop=loop=-1:size=1:start=0,trim=duration={freeze1_dur}"
+            
+            # Build freeze1 filter (for freeze1_dur duration)
+            f1_frames_calc = freeze1_dur * fps
+            if freeze1_zoom == "Zoom In":
+                f1_z = f"scale={width}:{height},setsar=1,zoompan=z='min(1+0.15*on/{f1_frames_calc},1.15)':d={f1_frames_calc}:s={res_str}:fps={fps}"
+            elif freeze1_zoom == "Zoom Out":
+                f1_z = f"scale={width}:{height},setsar=1,zoompan=z='max(1.15-0.15*on/{f1_frames_calc},1.0)':d={f1_frames_calc}:s={res_str}:fps={fps}"
+            else:
+                f1_z = None  # No zoom, just freeze frame
+            
+            # Build freeze2 filter (for freeze2_dur duration)
+            f2_frames_calc = freeze2_dur * fps
+            if freeze2_zoom == "Zoom In":
+                f2_z = f"scale={width}:{height},setsar=1,zoompan=z='min(1+0.15*on/{f2_frames_calc},1.15)':d={f2_frames_calc}:s={res_str}:fps={fps}"
+            elif freeze2_zoom == "Zoom Out":
+                f2_z = f"scale={width}:{height},setsar=1,zoompan=z='max(1.15-0.15*on/{f2_frames_calc},1.0)':d={f2_frames_calc}:s={res_str}:fps={fps}"
+            else:
+                f2_z = None  # No zoom, just freeze frame
             
             filter_parts = []
             concat_inputs = []
@@ -176,11 +204,24 @@ def process_segment_with_retry(index, text, video_segment, audio_path, final_seg
             
             for i in range(num_cycles):
                 curr = i * cycle_duration
+                # Play section: normal video playback
                 filter_parts.append(f"[v_speed]trim=start={curr}:end={curr+play_dur},setpts=PTS-STARTPTS[vplay_{i}];")
                 concat_inputs.append(f"[vplay_{i}]")
-                filter_parts.append(f"[v_speed]trim=start={curr+play_dur},select=eq(n\\,0),setpts=PTS-STARTPTS,loop=loop=-1:size=1:start=0,trim=duration={freeze1_dur},{f1_z}[vf1_{i}];")
+                
+                # Freeze 1 section: freeze frame with optional zoom
+                f1_trim_start = curr + play_dur
+                if f1_z:
+                    filter_parts.append(f"[v_speed]trim=start={f1_trim_start},select=eq(n\\,0),setpts=PTS-STARTPTS{f1_z}[vf1_{i}];")
+                else:
+                    filter_parts.append(f"[v_speed]trim=start={f1_trim_start},select=eq(n\\,0),setpts=PTS-STARTPTS,loop=loop=-1:size=1:start=0,trim=duration={freeze1_dur}[vf1_{i}];")
                 concat_inputs.append(f"[vf1_{i}]")
-                filter_parts.append(f"[v_speed]trim=start={curr+play_dur+freeze1_dur},select=eq(n\\,0),setpts=PTS-STARTPTS,loop=loop=-1:size=1:start=0,trim=duration={freeze2_dur},{f2_z}[vf2_{i}];")
+                
+                # Freeze 2 section: freeze frame with optional zoom
+                f2_trim_start = curr + play_dur + freeze1_dur
+                if f2_z:
+                    filter_parts.append(f"[v_speed]trim=start={f2_trim_start},select=eq(n\\,0),setpts=PTS-STARTPTS{f2_z}[vf2_{i}];")
+                else:
+                    filter_parts.append(f"[v_speed]trim=start={f2_trim_start},select=eq(n\\,0),setpts=PTS-STARTPTS,loop=loop=-1:size=1:start=0,trim=duration={freeze2_dur}[vf2_{i}];")
                 concat_inputs.append(f"[vf2_{i}]")
             
             filter_parts.append(f"{''.join(concat_inputs)}concat=n={len(concat_inputs)}:v=1:a=0[vcomb];")
