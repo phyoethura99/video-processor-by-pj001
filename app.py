@@ -231,6 +231,11 @@ def main():
                 video_segments, _ = split_future.result()
                 st.write("✅ Video splitting complete.")
                 
+                # Delete the original uploaded video to save disk space
+                if os.path.exists(video_path):
+                    os.remove(video_path)
+                    st.write("🗑️ Original uploaded video removed to save space.")
+                
                 # Wait for all TTS to finish
                 concurrent.futures.wait(tts_futures.keys())
                 st.write("✅ TTS generation complete.")
